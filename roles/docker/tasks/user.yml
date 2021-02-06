@@ -1,0 +1,42 @@
+- name: Create docker client user
+  become: yes
+  user:
+    name: "{{docker_cli_user}}"
+    groups: docker
+    create_home: yes
+
+- name: Create directory .ssh for client user
+  become: yes
+  when: docker_cli_user_public_keys is defined
+  file:
+    path: "/home/{{docker_cli_user}}/.ssh"
+    state: directory
+    owner: root
+    group: "{{docker_cli_user}}"
+    mode: 0750
+
+- name: Store ssh public keys for client user
+  become: yes
+  when: docker_cli_user_public_keys is defined
+  lineinfile:
+    path: "/home/{{docker_cli_user}}/.ssh/authorized_keys"
+    state: present
+    create: yes
+    owner: root
+    group: "{{docker_cli_user}}"
+    mode: 0640
+    line: "{{item}}"
+  with_items: "{{docker_cli_user_public_keys}}"
+
+- name: Remove ssh public keys for client user
+  become: yes
+  when: docker_cli_user_absent_public_keys is defined
+  lineinfile:
+    path: "/home/{{docker_cli_user}}/.ssh/authorized_keys"
+    state: absent
+    create: yes
+    owner: root
+    group: "{{docker_cli_user}}"
+    mode: 0640
+    line: "{{item}}"
+  with_items: "{{docker_cli_user_absent_public_keys}}"

@@ -1,0 +1,53 @@
+- name: Install for CentOS
+  when: ansible_distribution in ['CentOS']
+  include_tasks: centos.yml
+
+- name: Start glusterd
+  become: yes
+  systemd:
+    state: started
+    enabled: yes
+    name: glusterd
+
+- name: Allow glusterd to communicate
+  become: yes
+  firewalld:
+    state: enabled
+    permanent: yes
+    immediate: yes
+    service: glusterfs
+
+- name: Peer probe
+  become: yes
+  run_once: yes
+  when: gluster_server is defined
+  gluster.gluster.gluster_peer:
+    state: present
+    nodes: "{{item.nodes}}"
+  with_items: "{{gluster_server}}"
+
+- name: Create directory for bricks
+  become: yes
+  when: gluster_server is defined
+  file:
+    path: "{{item.brick_path}}"
+    state: directory
+  with_items: "{{gluster_server}}"
+
+- name: Create volume
+  become: yes
+  register: created
+  run_once: true
+  when: gluster_server is defined
+  gluster.gluster.gluster_volume:
+    state: present
+    name: "{{item.volname|default(item.brick_path|basename)}}"
+    bricks: "{{item.brick_path}}"
+    cluster: "{{item.nodes}}"
+    replicas: "{{item.replicas|default(3)}}"
+    rebalance: "{{item.rebalance|default('no')}}"
+    start_on_create: "{{item.start_on_create|default('yes')}}"
+    options: "{{item.options|default({})}}"
+    redundancies: "{{item.redudancies|default(0)}}"
+    force: yes
+  with_items: "{{gluster_server}}"

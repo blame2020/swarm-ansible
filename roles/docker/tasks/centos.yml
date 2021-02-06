@@ -1,0 +1,70 @@
+# See https://docs.docker.com/engine/install/centos/ for details of how to
+
+- name: Uninstall old versions docker
+  become: yes
+  yum:
+    state: absent
+    name:
+      - docker
+      - docker-client
+      - docker-client-latest
+      - docker-common
+      - docker-latest
+      - docker-latest-logrotate
+      - docker-logrotate
+      - docker-engine
+      - podman
+
+# From https://download.docker.com/linux/centos/docker-ce.repo
+
+- name: Setup the repository for docker-ce-stable
+  become: yes
+  yum_repository:
+    file: docker-ce
+    name: docker-ce-stable
+    description: Docker CE Stable - $basearch
+    baseurl: https://download.docker.com/linux/centos/$releasever/$basearch/stable
+    enabled: yes
+    gpgcheck: yes
+    gpgkey: https://download.docker.com/linux/centos/gpg
+
+- name: Setup the repository for docker-ce-stable-debuginfo
+  become: yes
+  yum_repository:
+    file: docker-ce
+    name: docker-ce-stable-debuginfo
+    description: Docker CE Stable - Debuginfo $basearch
+    baseurl: https://download.docker.com/linux/centos/$releasever/debug-$basearch/stable
+    enabled: no
+    gpgcheck: yes
+    gpgkey: https://download.docker.com/linux/centos/gpg
+
+- name: Setup the repository for docker-ce-stable-source
+  become: yes
+  yum_repository:
+    file: docker-ce
+    name: docker-ce-stable-source
+    description: Docker CE Stable - Sources
+    baseurl: https://download.docker.com/linux/centos/$releasever/source/stable
+    enabled: no
+    gpgcheck: yes
+    gpgkey: https://download.docker.com/linux/centos/gpg
+
+- name: Install packages
+  become: yes
+  yum:
+    state: latest
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - python3
+      - python3-pip
+
+- name: Install python modules for docker compose
+  become: yes
+  pip:
+    executable: pip3
+    state: present
+    name:
+      - docker-compose

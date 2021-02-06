@@ -1,0 +1,11 @@
+- hosts: gluster_server
+  roles:
+    - gluster_server
+
+- hosts: gluster_client
+  roles:
+    - gluster_client
+
+- hosts: docker
+  roles:
+    - docker

@@ -1,0 +1,185 @@
+- name: Install docker for CentOS
+  when: ansible_distribution in ["CentOS"]
+  include_tasks: centos.yml
+
+- name: Install python modules for Docker SDK for Python
+  become: yes
+  pip:
+    executable: pip3
+    state: present
+    name:
+      - docker[tls]
+
+- name: Create docker client user
+  when: docker_cli_user is defined
+  include_tasks: user.yml
+
+- name: Setup external volumes
+  include_tasks: external_volumes.yml
+  when : docker_external_volumes is defined
+
+- name: make directory /etc/docker
+  become: yes
+  file:
+    path: /etc/docker
+    state: directory
+    owner: root
+    group: root
+
+- name: Configure /etc/docker/daemon.json
+  become: yes
+  register: daemon_json
+  copy:
+    src: daemon.json
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    force: yes
+
+- name: stat /etc/sysconfig/docker
+  become: yes
+  register: etc_sysconfig_docker
+  stat:
+    path: /etc/sysconfig/docker
+
+- name: Disable live-restore
+  become: yes
+  when: etc_sysconfig_docker.stat.exists
+  register: disable_live_restore
+  lineinfile:
+    path: /etc/sysconfig/docker
+    regexp: live-restore
+    state: absent
+
+- name: semanage permissive -a container_t
+  become: yes
+  community.general.selinux_permissive:
+    permissive: yes
+    name: container_t
+
+- name: Apply proxy for docker
+  register: proxy
+  when: docker_proxy is defined
+  lineinfile:
+    path: /usr/lib/systemd/system/docker.service
+    insertafter: "\\[service\\]"
+    regexp: "Environment="
+    line: "Environment=\"HTTP_PROXY={{docker_proxy}}\" \"HTTPS_PROXY={{docker_proxy}}\""
+
+- name: Restart docker
+  become: yes
+  throttle: 1
+  when: daemon_json is changed or (disbale_live_restore is defined and disable_live_restore is changed) or (proxy is defined and proxy is changed)
+  systemd:
+    state: restarted
+    daemon_reload: yes
+    enabled: yes
+    name: docker.service
+
+- name: Start docker
+  become: yes
+  systemd:
+    state: started
+    enabled: yes
+    name: docker.service
+
+# https://docs.docker.com/engine/swarm/ingress/
+- name: Allow listen ports 2377/tcp, 4789/udp and 7946/tcp,udp for docker
+  become: yes
+  firewalld:
+    state: enabled
+    permanent: yes
+    immediate: yes
+    port: "{{item}}"
+  with_items:
+    - 2377/tcp
+    - 4789/udp
+    - 7946/tcp
+    - 7946/udp
+
+- name: Allow listen ports for services
+  become: yes
+  when: docker_service_ports is defined
+  firewalld:
+    state: enabled
+    permanent: yes
+    immediate: yes
+    port: "{{item}}"
+  with_items: "{{docker_service_ports}}"
+
+- name: Initalize swarm mode as manager
+  when: docker_swarm_join_to is not defined
+  become: yes
+  register: manager_result
+  command: >
+    docker swarm init
+    --listen-addr={{ docker_swarm_listen_addr | default('0.0.0.0:2377') }}
+    --advertise-addr={{ docker_swarm_advertise_addr|default(ansible_default_ipv4.address + ':2377') }}
+    --availability={{ docker_swarm_availability|default('active') }}
+  failed_when:
+    - manager_result.rc != 0
+    - "'This node is already part of a swarm.' not in manager_result.stderr"
+  changed_when:
+    - "'This node is already part of a swarm.' not in manager_result.stderr"
+
+- name: Get token for manager
+  become: yes
+  register: join_token_manager
+  when: docker_swarm_join_to is not defined
+  changed_when: False
+  command: docker swarm join-token -q manager
+
+- name: Get token for worker
+  become: yes
+  register: join_token_worker
+  when: docker_swarm_join_to is not defined
+  changed_when: False
+  command: docker swarm join-token -q manager
+
+- name: Join as swarm node
+  when: docker_swarm_join_to is defined
+  become: yes
+  register: manager_result
+  command: >
+    docker swarm join
+    --listen-addr={{ docker_swarm_listen_addr | default('0.0.0.0:2377') }}
+    --advertise-addr={{ docker_swarm_advertise_addr|default(ansible_default_ipv4.address + ':2377') }}
+    --availability={{ docker_swarm_availability|default('active') }}
+    --token="{{hostvars[docker_swarm_join_to]['join_token_' + docker_swarm_join_role|default('manager')].stdout}}"
+    {{ docker_swarm_join_to }}
+  failed_when:
+    - manager_result.rc != 0
+    - "'This node is already part of a swarm.' not in manager_result.stderr"
+  changed_when:
+    - "'This node is already part of a swarm.' not in manager_result.stderr"
+
+# https://github.com/google/cadvisor
+- name: Start cAdvisor
+  become: yes
+  community.general.docker_container:
+    name: cadvisor
+    image: google/cadvisor:latest
+    command: "-logtostderr -docker_only"
+    force_kill: yes
+    container_default_behavior: no_defaults
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    published_ports:
+      - "{{cadvisor_port|default('9100')}}:8080"
+    restart_policy: always
+    memory: "256M"
+    cpus: 1.0
+    detach: yes
+    privileged: yes
+
+- name: Allow the port for cadvisor
+  become: yes
+  firewalld:
+    state: enabled
+    permanent: yes
+    immediate: yes
+    port: "{{cadvisor_port|default('9100')}}/tcp"

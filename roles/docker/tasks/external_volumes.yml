@@ -1,0 +1,28 @@
+- name: Create directories for external volumes
+  become: yes
+  file:
+    path: "{{item}}"
+    owner: root
+    group: root
+    seuser: system_u
+    serole: object_r
+    setype: container_file_t
+    mode: 0700
+    state: directory
+  with_items: "{{docker_external_volumes}}"
+
+- name: Set file context for external volumes
+  become: yes
+  community.general.sefcontext:
+    state: present
+    ftype: a
+    setype: container_file_t
+    seuser: system_u
+    target: "{{item.rstrip('/')}}(/.*)?"
+  with_items: "{{docker_external_volumes}}"
+
+- name: Apply selinux context
+  become: yes
+  when: external_volumes is defined
+  command: "restorecon -R {{item}}"
+  with_items: "{{docker_external_volumes}}"

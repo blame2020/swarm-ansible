@@ -1,0 +1,29 @@
+- name: install packages for glusterfs client
+  become: yes
+  yum:
+    state: installed
+    name:
+      - glusterfs-fuse
+
+- name: Create mount point
+  become: yes
+  when: gluster_client is defined
+  file:
+    path: "{{item.path}}"
+    state: directory
+    owner: root
+    group: root
+    mode: 700
+    recurse: yes
+  with_items: "{{gluster_client}}"
+
+- name: mount
+  become: yes
+  when: gluster_client is defined
+  ansible.posix.mount:
+    path: "{{item.path}}"
+    src: "{{item.src}}"
+    fstype: glusterfs
+    opts: "defaults,_netdev{% if 'backup' in item %}',backup-volfile-servers=' + item.backup{% endif %}"
+    state: mounted
+  with_items: "{{gluster_client}}"

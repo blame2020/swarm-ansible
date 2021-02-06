@@ -1,0 +1,17 @@
+# https://docs.gluster.org/en/latest/Install-Guide/Install/
+# https://wiki.centos.org/SpecialInterestGroup/Storage
+
+- name: Install the repository for packages
+  become: yes
+  yum:
+    state: installed
+    name:
+      - centos-release-gluster
+
+- name: Install packages
+  become: yes
+  yum:
+    state: installed
+    name:
+      - glusterfs-server
+    enablerepo: powertools
